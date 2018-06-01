@@ -12,32 +12,44 @@
 
 #include "dlist.h"
 
-#define TEST_MSG "This is a test message"
-
-static void echo_read_cb(struct bufferevent *bev, void *ctx);
-static void echo_event_cb(struct bufferevent *bev, short events, void *ctx);
-static void accept_conn_cb(struct evconnlistener *listener,
-   evutil_socket_t fd, struct sockaddr *address, int socklen,
-   void *ctx);
-static void accept_error_cb(struct evconnlistener *listener, void *ctx);
-void signal_cb(evutil_socket_t fd, short event, void* arg);
-
-static void test_server();
+#define TEST_MSG "This is a test message\n"
+#define BUF_SIZE 1024
 
 typedef struct srv_ctx {
    struct event_base* ev_base;
-   int test;
-} srv_ctx;
+   dl_entry_t* ctx_list;
+} srv_ctx_t;
+
+
+// TODO: MAKE A STRUCT FOR EACH CLIENT TO USE FOR NAME AND ALL THAT
+typedef struct cli_ctx {
+   srv_ctx_t* ctx;
+} srv_ctx_t;
+
+static void echo_read_cb(struct bufferevent *bev, void *arg);
+static void echo_event_cb(struct bufferevent *bev, short events, void *arg);
+static void accept_conn_cb(struct evconnlistener *listener,
+   evutil_socket_t fd, struct sockaddr *address, int socklen,
+   void *arg);
+static void accept_error_cb(struct evconnlistener *listener, void *arg);
+static void signal_cb(evutil_socket_t fd, short event, void* arg);
+static void free_ctx(srv_ctx_t* ctx);
+
+static void broadcast_msg(dl_entry_t* ctx_list, char* msg, int len);
+
+static void test_server();
+
+
 
 int main(int argc, char **argv) {
    struct event_base *base;
    struct evconnlistener *listener;
    struct event* sev_int;
    struct sockaddr_in sin;
+   srv_ctx_t* ctx = NULL;
 
-   test_list();
-
-   return 0;
+   // test_list();
+   // return 0;
 
    int port = 8080;
 
@@ -62,12 +74,20 @@ int main(int argc, char **argv) {
    }
    evsignal_add(sev_int, NULL);
 
+   ctx = malloc(sizeof(srv_ctx_t));
+   if (ctx == NULL) {
+      printf("Unable to malloc ctx\n");
+   }
+   ctx->ev_base = base; 
+   ctx->ctx_list = NULL;
+   printf("ctx:%p\n", ctx);
+
    memset(&sin, 0, sizeof(sin));
    sin.sin_family = AF_INET;
    sin.sin_addr.s_addr = htonl(0);
    sin.sin_port = htons(port);
 
-   listener = evconnlistener_new_bind(base, accept_conn_cb, NULL,
+   listener = evconnlistener_new_bind(base, accept_conn_cb, ctx,
       LEV_OPT_CLOSE_ON_FREE|LEV_OPT_REUSEABLE, -1,
       (struct sockaddr*)&sin, sizeof(sin));
    if (!listener) {
@@ -82,48 +102,96 @@ int main(int argc, char **argv) {
 
    event_free(sev_int);
 
+   free_ctx(ctx);
+   free(ctx);
+
    evconnlistener_free(listener);
 
    return 0;
 }
 
-void echo_read_cb(struct bufferevent *bev, void *ctx) {
-   /* This callback is invoked when there is data to read on bev. */
-   struct evbuffer *input = bufferevent_get_input(bev);
-   struct evbuffer *output = bufferevent_get_output(bev);
-
-   bufferevent_write(bev, TEST_MSG, sizeof(TEST_MSG));
-
-   /* Copy all the data from the input buffer to the output buffer. */
-   evbuffer_add_buffer(output, input);
+void free_ctx(srv_ctx_t* ctx) {
+   dl_entry_t* con_entry = ctx->ctx_list;
+   while(con_entry != NULL) {
+      con_entry = deque(con_entry,con_entry);
+   }
 }
 
-static void echo_event_cb(struct bufferevent *bev, short events, void *ctx) {
+void broadcast_msg(dl_entry_t* ctx_list, char* msg, int len) {
+   dl_entry_t* con = ctx_list;
+   struct bufferevent *bev = NULL;
+
+   while(con != NULL){
+      bev = (struct bufferevent *) con->data;
+      bufferevent_write(bev,msg,len);
+      con = con->next;
+   }
+}
+
+
+void echo_read_cb(struct bufferevent *bev, void *arg) {
+   /* This callback is invoked when there is data to read on bev. */
+   srv_ctx_t* ctx = (srv_ctx_t*)arg;
+   struct evbuffer *input = bufferevent_get_input(bev);
+   struct evbuffer *output = bufferevent_get_output(bev);
+   char buf[BUF_SIZE];
+   int written = 0;
+
+
+   // bufferevent_write(bev, TEST_MSG, sizeof(TEST_MSG));
+
+//    int evbuffer_remove  (  struct evbuffer *    buf,
+// void *   data,
+// size_t   datlen 
+// )
+   written = bufferevent_read(bev,buf,BUF_SIZE);
+   broadcast_msg(ctx->ctx_list, buf, written);
+   // bufferevent_write(bev,buf,written);
+   // evbuffer_remove(input,buf,BUF_SIZE);
+
+
+   /* Copy all the data from the input buffer to the output buffer. */
+   // evbuffer_add(output, input);
+}
+
+static void echo_event_cb(struct bufferevent *bev, short events, void *arg) {
+   srv_ctx_t* ctx = (srv_ctx_t*)arg;
    if (events & BEV_EVENT_ERROR) {
       perror("Error from bufferevent");
    }
    if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
-      printf("Freeing connection\n");
+      printf("Freeing connection bev%p\n",bev);
+      ctx->ctx_list = deque_val(ctx->ctx_list,bev);
+      print_list(ctx->ctx_list);
       bufferevent_free(bev);
    }
 }
 
 static void accept_conn_cb(struct evconnlistener *listener,
    evutil_socket_t fd, struct sockaddr *address, int socklen,
-   void *ctx) {
+   void *arg) {
    /* We got a new connection! Set up a bufferevent for it. */
    struct event_base *base = evconnlistener_get_base(listener);
    struct bufferevent *bev = bufferevent_socket_new(
           base, fd, BEV_OPT_CLOSE_ON_FREE);
 
-   printf("Accepted New connection\n");
+   srv_ctx_t* ctx = (srv_ctx_t*)arg;
+   dl_entry_t* dl_entry;
+   // Not sure if bufferevents are unique?
+   dl_entry = insque(ctx->ctx_list,bev);
+   if (ctx->ctx_list == NULL) {
+      ctx->ctx_list = dl_entry;
+   }
 
-   bufferevent_setcb(bev, echo_read_cb, NULL, echo_event_cb, NULL);
+   printf("Accepted New connection bev:%p\n",bev);
+   print_list(ctx->ctx_list);
+
+   bufferevent_setcb(bev, echo_read_cb, NULL, echo_event_cb, ctx);
 
    bufferevent_enable(bev, EV_READ|EV_WRITE);
 }
 
-static void accept_error_cb(struct evconnlistener *listener, void *ctx) {
+static void accept_error_cb(struct evconnlistener *listener, void *arg) {
    struct event_base *base = evconnlistener_get_base(listener);
    int err = EVUTIL_SOCKET_ERROR();
    fprintf(stderr, "Got an error %d (%s) on the listener. "
