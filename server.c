@@ -10,21 +10,11 @@
 #include <errno.h>
 #include <signal.h>
 
-#include "dlist.h"
+
+#include "commands.h"
+#include "server.h"
 
 #define TEST_MSG "This is a test message\n"
-#define BUF_SIZE 1024
-
-typedef struct srv_ctx {
-   struct event_base* ev_base;
-   dl_entry_t* ctx_list;
-} srv_ctx_t;
-
-
-// TODO: MAKE A STRUCT FOR EACH CLIENT TO USE FOR NAME AND ALL THAT
-typedef struct cli_ctx {
-   srv_ctx_t* ctx;
-} srv_ctx_t;
 
 static void echo_read_cb(struct bufferevent *bev, void *arg);
 static void echo_event_cb(struct bufferevent *bev, short events, void *arg);
@@ -34,11 +24,6 @@ static void accept_conn_cb(struct evconnlistener *listener,
 static void accept_error_cb(struct evconnlistener *listener, void *arg);
 static void signal_cb(evutil_socket_t fd, short event, void* arg);
 static void free_ctx(srv_ctx_t* ctx);
-
-static void broadcast_msg(dl_entry_t* ctx_list, char* msg, int len);
-
-static void test_server();
-
 
 
 int main(int argc, char **argv) {
@@ -77,10 +62,10 @@ int main(int argc, char **argv) {
    ctx = malloc(sizeof(srv_ctx_t));
    if (ctx == NULL) {
       printf("Unable to malloc ctx\n");
+      return -1;
    }
+   memset(ctx,0,sizeof(srv_ctx_t));
    ctx->ev_base = base; 
-   ctx->ctx_list = NULL;
-   printf("ctx:%p\n", ctx);
 
    memset(&sin, 0, sizeof(sin));
    sin.sin_family = AF_INET;
@@ -88,7 +73,7 @@ int main(int argc, char **argv) {
    sin.sin_port = htons(port);
 
    listener = evconnlistener_new_bind(base, accept_conn_cb, ctx,
-      LEV_OPT_CLOSE_ON_FREE|LEV_OPT_REUSEABLE, -1,
+      LEV_OPT_CLOSE_ON_FREE|LEV_OPT_REUSEABLE|LEV_OPT_THREADSAFE, -1,
       (struct sockaddr*)&sin, sizeof(sin));
    if (!listener) {
       perror("Couldn't create listener");
@@ -100,12 +85,31 @@ int main(int argc, char **argv) {
 
    printf("Libevent Shutdown\n");
 
+   evconnlistener_free(listener);
    event_free(sev_int);
-
+   event_base_free(base);
    free_ctx(ctx);
    free(ctx);
 
-   evconnlistener_free(listener);
+   
+
+   #if LIBEVENT_VERSION_NUMBER >= 0x02010000
+   libevent_global_shutdown();
+   #endif
+
+   /* Standard OpenSSL cleanup functions */
+   #if OPENSSL_VERSION_NUMBER >= 0x10100000L
+   OPENSSL_cleanup();
+   #else
+   FIPS_mode_set(0);
+   ENGINE_cleanup();
+   CONF_modules_unload(1);
+   EVP_cleanup();
+   CRYPTO_cleanup_all_ex_data();
+   ERR_remove_state(0);
+   ERR_free_strings();
+   SSL_COMP_free_compression_methods();
+   #endif
 
    return 0;
 }
@@ -117,21 +121,9 @@ void free_ctx(srv_ctx_t* ctx) {
    }
 }
 
-void broadcast_msg(dl_entry_t* ctx_list, char* msg, int len) {
-   dl_entry_t* con = ctx_list;
-   struct bufferevent *bev = NULL;
-
-   while(con != NULL){
-      bev = (struct bufferevent *) con->data;
-      bufferevent_write(bev,msg,len);
-      con = con->next;
-   }
-}
-
-
 void echo_read_cb(struct bufferevent *bev, void *arg) {
    /* This callback is invoked when there is data to read on bev. */
-   srv_ctx_t* ctx = (srv_ctx_t*)arg;
+   cli_ctx_t* ctx = (cli_ctx_t*)arg;
    struct evbuffer *input = bufferevent_get_input(bev);
    struct evbuffer *output = bufferevent_get_output(bev);
    char buf[BUF_SIZE];
@@ -145,7 +137,9 @@ void echo_read_cb(struct bufferevent *bev, void *arg) {
 // size_t   datlen 
 // )
    written = bufferevent_read(bev,buf,BUF_SIZE);
-   broadcast_msg(ctx->ctx_list, buf, written);
+
+   buf[written] = '\0';
+   handle_command(buf, written, ctx);
    // bufferevent_write(bev,buf,written);
    // evbuffer_remove(input,buf,BUF_SIZE);
 
@@ -155,14 +149,17 @@ void echo_read_cb(struct bufferevent *bev, void *arg) {
 }
 
 static void echo_event_cb(struct bufferevent *bev, short events, void *arg) {
-   srv_ctx_t* ctx = (srv_ctx_t*)arg;
+   cli_ctx_t* ctx = (cli_ctx_t*)arg;
+   srv_ctx_t* base_ctx = ctx->base_ctx;
    if (events & BEV_EVENT_ERROR) {
       perror("Error from bufferevent");
    }
    if (events & (BEV_EVENT_EOF | BEV_EVENT_ERROR)) {
       printf("Freeing connection bev%p\n",bev);
-      ctx->ctx_list = deque_val(ctx->ctx_list,bev);
-      print_list(ctx->ctx_list);
+      base_ctx->ctx_list = deque_val(base_ctx->ctx_list,bev);
+      // Send some message that they are leaveing the chat
+      //broadcast_msg(ctx, buf, len, TRUE);
+      free(ctx);
       bufferevent_free(bev);
    }
 }
@@ -175,16 +172,23 @@ static void accept_conn_cb(struct evconnlistener *listener,
    struct bufferevent *bev = bufferevent_socket_new(
           base, fd, BEV_OPT_CLOSE_ON_FREE);
 
-   srv_ctx_t* ctx = (srv_ctx_t*)arg;
    dl_entry_t* dl_entry;
+   srv_ctx_t* base_ctx = (srv_ctx_t*)arg;
+   cli_ctx_t* ctx = (cli_ctx_t*)malloc(sizeof(cli_ctx_t));
+   memset(ctx,0,sizeof(cli_ctx_t));
+   
+   base_ctx->user_count++;
+   ctx->base_ctx = base_ctx;
+   ctx->bev = bev;
+   snprintf(ctx->name,NAME_MAX,DEAULT_NAME,base_ctx->user_count);
+   
    // Not sure if bufferevents are unique?
-   dl_entry = insque(ctx->ctx_list,bev);
-   if (ctx->ctx_list == NULL) {
-      ctx->ctx_list = dl_entry;
+   dl_entry = insque(base_ctx->ctx_list,bev);
+   if (base_ctx->ctx_list == NULL) {
+      base_ctx->ctx_list = dl_entry;
    }
 
-   printf("Accepted New connection bev:%p\n",bev);
-   print_list(ctx->ctx_list);
+   printf("Accepted New connection %s\n",ctx->name);
 
    bufferevent_setcb(bev, echo_read_cb, NULL, echo_event_cb, ctx);
 
