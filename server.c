@@ -48,20 +48,20 @@ int main(int argc, char **argv) {
 
    base = event_base_new();
    if (!base) {
-      printf("Couldn't open event base");
+      perror("Couldn't open event base");
       return 1;
    }
 
    sev_int = evsignal_new(base, SIGINT, signal_cb, base);
    if (sev_int == NULL) {
-      printf("Couldn't create SIGINT handler event\n");
+      perror("Couldn't create SIGINT handler event\n");
       return 1;
    }
    evsignal_add(sev_int, NULL);
 
    ctx = malloc(sizeof(srv_ctx_t));
    if (ctx == NULL) {
-      printf("Unable to malloc ctx\n");
+      perror("Unable to malloc ctx\n");
       return -1;
    }
    memset(ctx,0,sizeof(srv_ctx_t));
@@ -91,24 +91,8 @@ int main(int argc, char **argv) {
    free_ctx(ctx);
    free(ctx);
 
-   
-
    #if LIBEVENT_VERSION_NUMBER >= 0x02010000
    libevent_global_shutdown();
-   #endif
-
-   /* Standard OpenSSL cleanup functions */
-   #if OPENSSL_VERSION_NUMBER >= 0x10100000L
-   OPENSSL_cleanup();
-   #else
-   FIPS_mode_set(0);
-   ENGINE_cleanup();
-   CONF_modules_unload(1);
-   EVP_cleanup();
-   CRYPTO_cleanup_all_ex_data();
-   ERR_remove_state(0);
-   ERR_free_strings();
-   SSL_COMP_free_compression_methods();
    #endif
 
    return 0;
