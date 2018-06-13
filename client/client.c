@@ -4,6 +4,8 @@
 #include <signal.h>
 #include <string.h>
 
+#include "interface.h"
+
 #define BUF_SIZE 1024
 
 
@@ -60,6 +62,9 @@ int main(int argc, char **argv) {
    struct event* sev_int;
    struct bufferevent *bev;
    struct sockaddr_in sin;
+
+   // start_interface();
+   // exit(0);
 
    base = event_base_new();
    if (!base) {
