@@ -4,7 +4,7 @@
 #include <signal.h>
 #include <string.h>
 
-#include "interface.h"
+#include "display.h"
 
 #define BUF_SIZE 1024
 
@@ -29,7 +29,7 @@ void readcb(struct bufferevent *bev, void *arg) {
    written = bufferevent_read(bev,buf,BUF_SIZE);
 
    buf[written] = '\0';
-   printf("%s\n",buf);
+   printf("%s",buf);
    // bufferevent_write(bev,buf,written);
    // evbuffer_remove(input,buf,BUF_SIZE);
 
@@ -50,10 +50,21 @@ void eventcb(struct bufferevent *bev, short events, void *ptr) {
       printf("got this%d:%s\n",len,buf);
       bufferevent_write(bev,buf,len);
       printf("sent\n");
-   } else if (events & BEV_EVENT_ERROR) {
-      perror("Error occured while connecting\n");
+   // } else if (events & BEV_EVENT_ERROR) {
+   //    perror("Error occured while connecting\n");
+   //    event_base_loopbreak(ptr);
+   // /* An error occured while connecting. */
+   // }
+   } else if (events & (BEV_EVENT_ERROR|BEV_EVENT_EOF)) {
+      struct event_base *base = ptr;
+      if (events & BEV_EVENT_ERROR) {
+         perror("Error occured while connecting");
+      }
+      else {
+         printf("Connection ended\n");
+      }
+      bufferevent_free(bev);
       event_base_loopbreak(ptr);
-   /* An error occured while connecting. */
    }
 }
 
@@ -74,7 +85,7 @@ int main(int argc, char **argv) {
 
    sev_int = evsignal_new(base, SIGINT, signal_cb, base);
    if (sev_int == NULL) {
-      perror("Couldn't create SIGINT handler event\n");
+      perror("Couldn't create SIGINT handler event");
       return 1;
    }
    evsignal_add(sev_int, NULL);

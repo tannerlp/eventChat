@@ -16,8 +16,8 @@
 
 #define TEST_MSG "This is a test message\n"
 
-static void echo_read_cb(struct bufferevent *bev, void *arg);
-static void echo_event_cb(struct bufferevent *bev, short events, void *arg);
+static void read_cb(struct bufferevent *bev, void *arg);
+static void event_cb(struct bufferevent *bev, short events, void *arg);
 static void accept_conn_cb(struct evconnlistener *listener,
    evutil_socket_t fd, struct sockaddr *address, int socklen,
    void *arg);
@@ -105,7 +105,7 @@ void free_ctx(srv_ctx_t* ctx) {
    }
 }
 
-void echo_read_cb(struct bufferevent *bev, void *arg) {
+void read_cb(struct bufferevent *bev, void *arg) {
    /* This callback is invoked when there is data to read on bev. */
    cli_ctx_t* ctx = (cli_ctx_t*)arg;
    struct evbuffer *input = bufferevent_get_input(bev);
@@ -132,7 +132,7 @@ void echo_read_cb(struct bufferevent *bev, void *arg) {
    // evbuffer_add(output, input);
 }
 
-static void echo_event_cb(struct bufferevent *bev, short events, void *arg) {
+static void event_cb(struct bufferevent *bev, short events, void *arg) {
    cli_ctx_t* ctx = (cli_ctx_t*)arg;
    srv_ctx_t* base_ctx = ctx->base_ctx;
    if (events & BEV_EVENT_ERROR) {
@@ -174,7 +174,7 @@ static void accept_conn_cb(struct evconnlistener *listener,
 
    printf("Accepted New connection %s\n",ctx->name);
 
-   bufferevent_setcb(bev, echo_read_cb, NULL, echo_event_cb, ctx);
+   bufferevent_setcb(bev, read_cb, NULL, event_cb, ctx);
 
    bufferevent_enable(bev, EV_READ|EV_WRITE);
 }

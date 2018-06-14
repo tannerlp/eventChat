@@ -7,7 +7,7 @@ EXEC = client
 SOURCES = $(wildcard *.c)
 OBJECTS = $(SOURCES:.c=.o)
 STD_INCLUDES = 
-LIBS = -levent_openssl -levent -lncurses
+LIBS = -levent_openssl -levent -lncurses -lpthread
 INCLUDES = 
 
 all: CXXFLAGS+=$(CXX_DEBUG_FLAGS)
