@@ -74,8 +74,8 @@ int main(int argc, char **argv) {
    struct bufferevent *bev;
    struct sockaddr_in sin;
 
-   // start_interface();
-   // exit(0);
+   start_interface();
+   exit(0);
 
    base = event_base_new();
    if (!base) {
