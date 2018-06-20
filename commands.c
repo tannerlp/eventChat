@@ -82,7 +82,7 @@ void broadcast_msg(cli_ctx_t* ctx, char* buf, int len, int show_name) {
    dl_entry_t* con = base_ctx->ctx_list;
    
    if (show_name) {
-      size = sprintf(msg,"<%s> %s",ctx->name,buf);
+      size = sprintf(msg,"<%s> %s\n",ctx->name,buf);
    }
    else {
       strncpy(msg,buf,BUF_SIZE);

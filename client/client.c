@@ -3,15 +3,21 @@
 #include <sys/socket.h>
 #include <signal.h>
 #include <string.h>
+#include <ncurses.h>
+#include <pthread.h>
 
 #include "display.h"
-
-#define BUF_SIZE 1024
+#include "chat_bar.h"
 
 
 static void readcb(struct bufferevent *bev, void *arg);
 static void eventcb(struct bufferevent *bev, short events, void *ptr);
 static void signal_cb(evutil_socket_t fd, short event, void* arg);
+
+void perror_quit(char *error) {
+   quit_display();
+   perror(error);
+}
 
 void readcb(struct bufferevent *bev, void *arg) {
    struct evbuffer *input = bufferevent_get_input(bev);
@@ -29,7 +35,7 @@ void readcb(struct bufferevent *bev, void *arg) {
    written = bufferevent_read(bev,buf,BUF_SIZE);
 
    buf[written] = '\0';
-   printf("%s",buf);
+   write_chat_window(buf);
    // bufferevent_write(bev,buf,written);
    // evbuffer_remove(input,buf,BUF_SIZE);
 
@@ -44,24 +50,20 @@ void eventcb(struct bufferevent *bev, short events, void *ptr) {
    if (events & BEV_EVENT_CONNECTED) {
    /* We're connected to 127.0.0.1:8080.   Ordinarily we'd do
    something here, like start reading or writing. */
-      printf("connected!\n");
-      fgets(buf,BUF_SIZE,stdin);
-      len = strlen(buf);
-      printf("got this%d:%s\n",len,buf);
-      bufferevent_write(bev,buf,len);
-      printf("sent\n");
+      write_chat_window("[*]Connected to server!\n\n");
    // } else if (events & BEV_EVENT_ERROR) {
-   //    perror("Error occured while connecting\n");
+   //    //perror("Error occured while connecting\n");
    //    event_base_loopbreak(ptr);
    // /* An error occured while connecting. */
    // }
    } else if (events & (BEV_EVENT_ERROR|BEV_EVENT_EOF)) {
       struct event_base *base = ptr;
       if (events & BEV_EVENT_ERROR) {
-         perror("Error occured while connecting");
+         //write_chat_window("Error occured while connecting");
+         perror_quit("Error occured while connecting");
       }
       else {
-         printf("Connection ended\n");
+         write_chat_window("Connection ended\n");
       }
       bufferevent_free(bev);
       event_base_loopbreak(ptr);
@@ -73,19 +75,21 @@ int main(int argc, char **argv) {
    struct event* sev_int;
    struct bufferevent *bev;
    struct sockaddr_in sin;
+   pthread_t chat_bar;
 
-   start_interface();
-   exit(0);
+   // test_display();
+   start_display();
 
    base = event_base_new();
    if (!base) {
-      perror("Couldn't open event base");
+      //write_chat_window("Couldn't open event base");
+      perror_quit("Couldn't open event base");
       return 1;
    }
 
    sev_int = evsignal_new(base, SIGINT, signal_cb, base);
    if (sev_int == NULL) {
-      perror("Couldn't create SIGINT handler event");
+      perror_quit("Couldn't create SIGINT handler event");
       return 1;
    }
    evsignal_add(sev_int, NULL);
@@ -102,16 +106,20 @@ int main(int argc, char **argv) {
 
    if (bufferevent_socket_connect(bev, (struct sockaddr *)&sin, sizeof(sin)) < 0) {
       /* Error starting connection */
-      perror("Unable to connect to host");
+      //write_chat_window("Unable to connect to host");
+      perror_quit("Unable to connect to host");
       bufferevent_free(bev);
       return -1;
    }
+
+   // start a mutex here?
+   pthread_create(&chat_bar, NULL, read_loop, (void*)bev);
 
    event_base_dispatch(base);
 
    event_free(sev_int);
    event_base_free(base);
-
+   quit_display();
    return 0;
 }
 
@@ -119,7 +127,7 @@ void signal_cb(evutil_socket_t fd, short event, void* arg) {
    int signum = fd;
    switch (signum) {
       case SIGINT:
-         printf("Caught SIGINT\n");
+         write_chat_window("Caught SIGINT\n");
          event_base_loopbreak(arg);
          break;
       default:

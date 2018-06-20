@@ -1,28 +1,28 @@
 #include <ncurses.h>
-#include <pthread.h>
 #include <stdlib.h>
 //http://tldp.org/HOWTO/NCURSES-Programming-HOWTO/
 
-#define BUF_SIZE 100
+#define PROMPT "> "
 
-void init();
+WINDOW *chat_display;
+WINDOW *chat_bar;
+int row_max;
+int col_max;
 
-void init() {
+
+static void init_config();
+
+
+void init_config() {
    initscr();                 /* Start curses mode              */
    //noecho();                  // Dont echo characters as they are typed
    cbreak();                  // pass the intreupts to the program?
    keypad(stdscr, TRUE);      // enable the arrow keys to be used
 }
 
-void test() {
+void start_display() {
+   init_config();
    char prompt[]="> ";           /* message to be appeared on the screen */
-   int row_max,col_max;          /* to store the number of rows and      *
-                                  * the number of colums of the screen   */
-   char buf[BUF_SIZE];
-   WINDOW *chat_display;
-   WINDOW *chat_bar;
-   int row = 0;
-   int col = 0;
 
    getmaxyx(stdscr,row_max,col_max);     /* get the number of rows and columns */
 
@@ -31,34 +31,40 @@ void test() {
 
    scrollok(chat_display,TRUE);
 
-   
-   mvprintw(row_max-2,0,"This screen has %d rows and %d columns\n",row_max,col_max);
+   // mvprintw(row_max-2,0,"This screen has %d rows and %d columns\n",row_max,col_max);
    refresh();
-
-   for (row = 0; row < row_max+15; ++row)
-   { 
-      mvwprintw(chat_bar,0,0,"> ");
-      wclrtoeol(chat_bar);
-      wrefresh(chat_bar);
-      wgetnstr(chat_bar,buf,BUF_SIZE);
-
-      wprintw(chat_display,"%s\n",buf); /* print the message on the screen */
-      wrefresh(chat_display);
-   }
-   
-   //
-   
-   
 }
 
-void start_interface() {
-   init();
+void read_chat_bar(char* buf, int size){
+   if (chat_bar) {
+      mvwprintw(chat_bar,0,0,PROMPT);
+      wclrtoeol(chat_bar);
+      wrefresh(chat_bar);
+      wgetnstr(chat_bar,buf,size);
+   }
+}
 
-   test();
+void write_chat_window(char * buf){
+   if (chat_display) {
+      wprintw(chat_display,"%s",buf); /* print the message on the screen */
+      wrefresh(chat_display);
+      // //recenter cursor
+      // wmove(chat_bar,0,0);
+   }
+}
+
+void quit_display() {
+   endwin();
+}
+
+void test_display() {
+   init_config();
+
+   start_display();
 
    getch();
+
    endwin();                       /* End curses mode                */
 
-   return 0;
-
+   exit(0);
 }
