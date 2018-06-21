@@ -5,10 +5,13 @@
 #include <string.h>
 #include <ncurses.h>
 #include <pthread.h>
+#include <arpa/inet.h>
 
 #include "display.h"
 #include "chat_bar.h"
 
+#define DEFAULT_IP "0" // localhost
+#define DEFAULT_PORT 8080
 
 static void readcb(struct bufferevent *bev, void *arg);
 static void eventcb(struct bufferevent *bev, short events, void *ptr);
@@ -76,9 +79,11 @@ int main(int argc, char **argv) {
    struct bufferevent *bev;
    struct sockaddr_in sin;
    pthread_t chat_bar;
+   char* ip_addr;
+   int port;
 
    // test_display();
-   start_display();
+   // start_display();
 
    base = event_base_new();
    if (!base) {
@@ -94,10 +99,25 @@ int main(int argc, char **argv) {
    }
    evsignal_add(sev_int, NULL);
 
+   if (argc >= 2 ) {
+      ip_addr = argv[1];
+   } 
+   else {
+      ip_addr = DEFAULT_IP;
+   }
+   if (argc == 3) {
+      port = atoi(argv[2]);
+   } 
+   else {
+      port = DEFAULT_PORT;
+   }
+
    memset(&sin, 0, sizeof(sin));
    sin.sin_family = AF_INET;
-   sin.sin_addr.s_addr = htonl(0); /* 127.0.0.1 */
-   sin.sin_port = htons(8080); /* Port 8080 */
+   if (!inet_aton(ip_addr,&sin.sin_addr.s_addr)) {
+      perror_quit("IP address could not be parsed.");
+   }
+   sin.sin_port = htons(port); /* Port 8080 */
 
    bev = bufferevent_socket_new(base, -1, BEV_OPT_CLOSE_ON_FREE);
 
