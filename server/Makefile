@@ -7,7 +7,7 @@ EXEC = server
 SOURCES = $(wildcard *.c)
 OBJECTS = $(SOURCES:.c=.o)
 STD_INCLUDES = 
-LIBS = -levent_openssl -levent -lcrypto -lssl 
+LIBS = -levent_openssl -levent #-lcrypto -lssl 
 INCLUDES = 
 
 all: CXXFLAGS+=$(CXX_DEBUG_FLAGS)

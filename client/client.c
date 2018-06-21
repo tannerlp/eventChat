@@ -82,8 +82,7 @@ int main(int argc, char **argv) {
    char* ip_addr;
    int port;
 
-   // test_display();
-   // start_display();
+   start_display();
 
    base = event_base_new();
    if (!base) {
